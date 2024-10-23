@@ -1,0 +1,301 @@
+---
+title: "30 Day Map Challenge"
+author: "Wei Jing Ang"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    theme: sandstone
+    code_folding: hide
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+# Set up
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup_packages, warning = FALSE, message = FALSE}
+# Load libraries
+library(tidyverse)
+library(sf)
+library(ggplot2)
+library(patchwork)
+library(ghibli)
+library(ggrepel)
+library(ggtext)
+library(glue)
+library(tigris)
+library(rgeoboundaries)
+library(mapview)
+```
+
+```{r load_data}
+# Load data
+# Mekong river basin
+basin <- read_sf("Data/Mekong_basin_delta/Mekong_basin_delta.shp")
+countries <- rbind(geoboundaries("china"),
+                   geoboundaries("myanmar"),
+                   geoboundaries("thailand"),
+                   geoboundaries("laos"),
+                   geoboundaries("cambodia"),
+                   geoboundaries("vietnam"))
+india <- geoboundaries("india", adm_lvl = 1) # does not have country level data
+india <- india[c(112,118,78,120,110),] # select visible states
+
+# Dams
+dams <- read_sf("Data/Dams_1055/Dams_1055.shp")
+dams1980 <- read_sf("Data/1980/1980.shp") # 1980
+dams1990 <- read_sf("Data/1990/1990_combi.shp") # 1990
+dams2000 <- read_sf("Data/2000/2000_combi.shp") # 2000
+dams2010 <- read_sf("Data/2010/2010_combi.shp") # 2010
+dams2020 <- read_sf("Data/2020/2020_combi.shp") # 2020
+
+# River and lake
+river1 <- read_sf("Data/River_1/FLOW1_STRA_3_China.shp") # upper course
+river2 <- read_sf("Data/River_2/FLOW1_STRA_5.shp") # middle course
+river3 <- read_sf("Data/River_3/FLOW3_CLASS2_TS.shp") # lower course
+lake <- read_sf("Data/Lake/HydroLAKES_TS_finer.shp") # Tonle Sap Lake
+```
+
+# 1. Points
+30DayMapChallenge classic: A map with points. Start the challenge with points. Show individual locations—anything from cities to trees or more abstract concepts. Simple, but a key part of the challenge.
+
+NOTE: TO IMPROVE MAP PROJECTION
+
+```{r day1, message = FALSE, warning = FALSE, fig.align = "center",fig.height=7,fig.width=4}
+# Define subtitle 
+annotation1 <- annotation_text <- glue("<span style='color:#C66125;'>**New dams planned<br>and under construction**</span><br>will expand the network<br>beyond a thousand")
+
+ggplot() +
+  
+  # Map limits
+  xlim(94, 109) +
+  ylim(9, 33.5) +
+  
+  # Basemap (countries)
+  geom_sf(data=countries, fill = "grey92", col = "white", lwd = 0.9)+
+  geom_sf(data=st_union(india), fill = "grey92", col = "white", lwd = 0.9)+
+  
+  # Mekong basin
+  geom_sf(data = basin, fill = "grey30", color = "transparent") + # lower basin
+  geom_sf(data = rbind(river1, river2, river3), color = "#3981A4", lwd=0.9) + # river
+  geom_sf(data = lake, fill = "#3981A4", color = "transparent") + # Tonle Sap Lake
+
+  # Operating dams
+  geom_sf(data = dams %>% 
+            filter(Status == "Operational"),
+          pch = 21, aes(fill = "grey"), color = "transparent", size = 2) +
+
+  # Planned/ constructing dams
+  geom_sf(data = dams %>% 
+            filter(Status == "Under construction" | Status == "Planned"),
+          pch = 21, aes(fill = "#C66125"), color = "transparent", size = 2) +
+  
+  # Define colours
+  scale_fill_manual(values = c(alpha("#C66125",0.8),alpha("grey",0.5)))+
+  
+  # Labels
+  labs(title = "Mekong dams to nearly double by 2040",
+       caption = "Source: Ang, Wei Jing; Park, Edward; Pokhrel, Yadu; Tran, Dung Duc; Loc, Ho Huu, 2023, Replication Data for: 
+       Dams in the Mekong: A comprehensive database, spatiotemporal distribution, and hydropower potentials, 
+       https://doi.org/10.21979/N9/ACZIJN, DR-NTU (Data), V2, UNF:6:WPyeXwvCJSNeRzsfLOPd5Q== [fileUNF].")+
+  
+  # Annotations
+  geom_richtext(aes(x = 101, y = 31,
+                    label = annotation1),
+                size = 10/.pt, 
+                colour = "grey30",
+                hjust = 0,
+                fill = NA,
+                label.color = NA)+
+  
+  # Define map theme
+  theme_void() +
+  theme(plot.title = element_text(face="bold",size=12,margin=margin(0,0,10,0)),
+        plot.caption = element_text(size=5, hjust = 0),
+        panel.background = element_rect(fill="white"),
+        panel.border = element_rect(color="white",fill=NA),
+        legend.position = "none")
+
+ggsave("Output/Day1.png", plot = last_plot(), height = 7, width = 4,units = "in")
+
+# CRS <- c("+proj=eqearth")
+# xlim(st_bbox(basin)$xmin-10, st_bbox(basin)$xmax+10) +
+# ylim(st_bbox(basin)$ymin-10, st_bbox(basin)$ymax+10) +
+```
+
+# 2. Lines
+30DayMapChallenge classic: A map with focus on lines. Roads, rivers, routes, or borders—this day is all about mapping connections and divisions. Another traditional way to keep things moving. 
+
+```{r day2}
+```
+
+# 3. Polygons 
+30DayMapChallenge classic: A map with polygons. Regions, countries, lakes—this day is for defined shapes that fill space.
+
+```{r day3}
+```
+
+# 4. Hexagons
+Maps using hexagonal grids. Step away from square grids and try mapping with hexagons. A fun way to show density or spatial patterns.
+
+```{r day4}
+```
+
+# 5. A journey
+Map any journey. Personal or not. Trace a journey—this could be a daily commute, a long-distance trip, or something from history. The key is to map movement from one place to another. 
+
+```{r day5}
+```
+
+# 6. Raster
+A map using raster data. Rasters are everywhere, but today’s focus is purely on grids and pixels—satellite imagery, heatmaps, or any continuous surface data.
+
+```{r day6}
+```
+
+# 7. Vintage style
+Map something modern in a vintage aesthetic. Create a map that captures the look and feel of historical cartography but focuses on a contemporary topic. Use muted colors, fonts, and classic elements.
+
+```{r day7}
+```
+
+# 8. Data: HDX
+Use data from HDX to map humanitarian topics. Explore the datasets from the Humanitarian Data Exchange, covering disaster response, health, population, and development. Map for social good. 
+
+```{r day8}
+```
+
+# 9. AI only
+This day is all about prompt engineering. Use AI tools like DALL-E, MidJourney, Stable Diffusion, or ChatGPT with geospatial capabilities to create a map based on AI-generated content. The challenge is to get the right prompt and critically assess the output—how well does AI capture or distort the map's intent?
+
+```{r day9}
+```
+
+# 10. Pen & paper
+Draw a map by hand. Go analog and draw a map using pen and paper. The result doesn’t have to be perfect—it’s about the creative process.
+
+```{r day10}
+```
+
+# 11. Arctic
+Map the Arctic. Whether it’s ice coverage, wildlife habitats, or the effects of climate change, this day is all about mapping the cold extremes of the Arctic.
+
+```{r day11}
+```
+
+# 12. Time and space
+Map something where time matters. Visualize change over time—urban growth, migration, or environmental shifts. Show the relationship between time and geography.
+
+```{r day12}
+```
+
+# 13. A new tool
+Use a tool you’ve never tried before. The challenge has always been about trying new things. Use a tool, software, or drawing technique you’ve never worked with before. 
+
+```{r day13}
+```
+
+# 14. A world map
+Map the whole world. Whether it’s continents, ecosystems, or oceans, this is the day to map the entire planet. 
+
+```{r day14}
+```
+
+# 15. Data: My data
+Map something personal. Map data from your own life—this could be places you’ve traveled, your daily routine, or any other personal touch.
+
+```{r day15}
+```
+
+# 16. Choropleth
+Classic choropleth map. Use color to show data variation across regions. This simple but effective technique is a staple for showing thematic differences. 
+
+```{r day16}
+```
+
+# 17. Collaborative map
+Collaborate with others on a single map. For today’s challenge, team up! Whether you work with one person or several, the idea is to combine your efforts on a single map. 
+
+```{r day17}
+```
+
+# 18. 3D
+Map with depth. Add a third dimension to your map. Whether it’s visualizing elevation, buildings, or something more abstract, today’s about thinking beyond flat surfaces. 
+
+```{r day18}
+```
+
+# 19. Typography
+Map focused on typography. Let text and words do the heavy lifting today. Whether you’re focusing on place names, labeling, or using text to create shapes and patterns. 
+
+```{r day19}
+```
+
+# 20. Data: OpenStreetMap
+Use OpenStreetMap data to create something. OpenStreetMap offers rich, editable data from roads to buildings and beyond. The goal is to showcase the power of this community-driven dataset.
+
+```{r day20}
+```
+
+# 21. Conflict
+Map a conflict. Political, territorial, or social—there are conflicts all around us. Map boundaries, tension points, or the outcomes of conflicts.
+
+```{r day21}
+```
+
+# 22. 2 colours
+Create a map using only 2 colors. No gradients or shading—just two flat colors. This restriction encourages creativity in design and forces you to think about how to clearly convey your message with minimal color.
+
+```{r day22}
+```
+
+# 23. Memory
+Map based on memory. Create a map of a place you remember—hometown, favorite destination, or somewhere meaningful. It doesn’t need to be perfectly accurate, just how you recall it.
+
+```{r day23}
+```
+
+# 24. Only circular shapes
+Map using only circles. Everything should be circular. Forget straight lines and sharp edges, and see how creative you can get by sticking to round shapes.
+
+```{r day24}
+```
+
+# 25. Heat
+Map something related to heat. Focus on heat, whether it’s actual temperature or areas of intensity—like heatmaps of activity or metaphorical heat.
+
+```{r day25}
+```
+
+# 26. Map projections
+Explore different map projections and how they distort the world. Whether it's focusing on the classic Mercator, the Peters projection, or a more obscure one like the Waterman Butterfly, today is about playing with how we represent the round Earth on flat surfaces.
+
+```{r day26}
+```
+
+# 27. Micromapping
+Map something small and precise. Zoom in and map a small area in high detail. It could be a single building, a street corner, or a tiny plot of land. Focus on accuracy at a small scale. 
+
+```{r day27}
+```
+
+# 28. The blue planet
+Map oceans, rivers, and lakes. Focus on water today. Map the oceans, rivers, or lakes, diving deep into marine environments or water systems.
+
+```{r day28}
+```
+
+# 29. Data: Overture
+Use data from the Overture Maps Foundation. Explore data from Overture Maps Foundation to create a map that highlights new geographic datasets. A great opportunity to dive into open geospatial data! 
+
+```{r day29}
+```
+
+# 30. The final map
+The final challenge—your choice! Revisit a technique from earlier in the month, refine an idea, or try something completely new. End the challenge on a high note with a map that showcases your creativity, growth, or just pure fun!
+
+```{r day30}
+```
