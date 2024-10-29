@@ -1,0 +1,5 @@
+bathymetry.tfw (application/octet-stream) 82 bytes.
+bathymetry.tif.aux.xml (text/xml) 1806 bytes.
+bathymetry.tif.xml (text/xml) 5785 bytes.
+bathymetry.tif.ovr (image/tiff) 443200 bytes.
+bathymetry.tif (image/tiff) 2009430 bytes.
