@@ -116,7 +116,7 @@ finalPlot <- ggdraw() +
 finalPlot
 
 ## Save figure ----
-ggsave("Output/16-WeiJing-Chloropleth.png", plot = last_plot(), height = 5.5, width = 7,units = "in")
+ggsave("Output/16-WeiJing-Choropleth.png", plot = last_plot(), height = 5.5, width = 7,units = "in")
 
 ## Code used for data wrangling ----
 # usa_wateruse <- read_csv("Data/Water_Use/usco2015v2.0.csv",skip=1)
