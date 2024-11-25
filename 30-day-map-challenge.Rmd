@@ -4,14 +4,15 @@ author: "Wei Jing Ang"
 date: "`r Sys.Date()`"
 output: 
   html_document:
-    theme: sandstone
+    toc: true
+    theme: journal
+    toc_float: true
     code_folding: hide
 editor_options: 
   markdown: 
     wrap: 72
 ---
 
-# Set up
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -28,21 +29,22 @@ library(ggtext)
 library(glue)
 library(tigris)
 library(rgeoboundaries)
-library(mapview)
+library(raster)
+library(classInt)
+library(terra)
+library(biscale)
+library(cowplot)
+library(viridis)
+library(rayshader)
+library(magick)
+library(ggpubr)
 ```
 
-```{r load_data}
-# Load data
+```{r load_data, message = FALSE, warning = FALSE, results = 'hide'}
 # Mekong river basin
 basin <- read_sf("Data/Mekong_basin_delta/Mekong_basin_delta.shp")
-countries <- rbind(geoboundaries("china"),
-                   geoboundaries("myanmar"),
-                   geoboundaries("thailand"),
-                   geoboundaries("laos"),
-                   geoboundaries("cambodia"),
-                   geoboundaries("vietnam"))
-india <- geoboundaries("india", adm_lvl = 1) # does not have country level data
-india <- india[c(112,118,78,120,110),] # select visible states
+countries_mekong <- read_sf("Data/Mekong_basin_countries/Mekong_basin_countries.shp")
+countries <- read_sf("Data/World_Countries_(Generalized)/World_Countries__Generalized_.shp")
 
 # Dams
 dams <- read_sf("Data/Dams_1055/Dams_1055.shp")
@@ -57,26 +59,52 @@ river1 <- read_sf("Data/River_1/FLOW1_STRA_3_China.shp") # upper course
 river2 <- read_sf("Data/River_2/FLOW1_STRA_5.shp") # middle course
 river3 <- read_sf("Data/River_3/FLOW3_CLASS2_TS.shp") # lower course
 lake <- read_sf("Data/Lake/HydroLAKES_TS_finer.shp") # Tonle Sap Lake
+
+# Amazon river
+amazon_river <- st_read("Data/Amazon_hydrorivers/Amazon_hydrorivers.shp")
+amazon_basin <- st_read("Data/Amazon_hydrobasin/Amazon_hydrobasin.shp")
+curuai <- st_read("Data/CR/CR.shp") # shapefile for single lake
+
+# Bathymetry
+bathy <- rast("Data/Bathymetry/bathymetry.tif") # SpatRaster (rater() gives RasterLayer)
+bathy_values <- values(bathy)[!is.na(values(bathy))] # remove na for classification
+breaks <- classInt::classIntervals(bathy_values, 
+                                   style = "quantile", n = 4)
+bathy_class <- terra::classify(bathy, breaks$brks) # split by quantiles
+bathy_df <- as.data.frame(bathy_class,xy=TRUE) # convert to df for mapping
+
+# River polygon
+hydropoly <- read_sf("Data/Hydropoly/hydropoly_recropped.shp")
+hydropoly_add <- read_sf("Data/Hydropoly_additional/Hydropoly_additional.shp")
+
+# USA
+usa_wateruse_state <- read_csv("Data/usa_wateruse_state.csv")
+usa_wateruse_penn <- st_read("Data/usa_wateruse_penn/usa_wateruse_penn.shp")
+usa_states <- states(cb = TRUE)
+hexbin <- read_sf("Data/us_states_hexgrid.geojson")
 ```
 
+# Overall theme: Water
+
 # 1. Points
-30DayMapChallenge classic: A map with points. Start the challenge with points. Show individual locations—anything from cities to trees or more abstract concepts. Simple, but a key part of the challenge.
+Dams felt like a good fit for day 1's theme on points, and I wanted to convey the message that the many dams being planned and under construction in the Mekong River Basin will expand the network to over a thousand in the next decade. 
 
-NOTE: TO IMPROVE MAP PROJECTION
+To draw attention to the upcoming dams, I employed the preattentive attributes of intensity and color. The current dams are in grey and of lower opacity, while the upcoming dams are in orange and of higher opacity. The Mekong River Basin is in dark grey to create a clear visual hierarchy in contrast with the light grey basemap. 
 
-```{r day1, message = FALSE, warning = FALSE, fig.align = "center",fig.height=7,fig.width=4}
-# Define subtitle 
-annotation1 <- annotation_text <- glue("<span style='color:#C66125;'>**New dams planned<br>and under construction**</span><br>will expand the network<br>beyond a thousand")
+Using Gestalt's principle of similarity, part of the annotation is colored according to the orange new dams. To highlight that the dam network is growing exponentially, "over a thousand" was bolded, following the preattentive attribute of line width. 
+
+```{r day1, message = FALSE, warning = FALSE, fig.align = "center",fig.height=7,fig.width=4.5,out.width='60%'}
+# Define annotation 
+annotation1 <- glue("<span style='color:#C66125;'>**Dams planned and under<br>construction**</span> are expected to<br>expand the network to **over a<br>thousand** in the next decade.")
 
 ggplot() +
   
   # Map limits
-  xlim(94, 109) +
-  ylim(9, 33.5) +
+  xlim(93, 110) +
+  ylim(9.2, 33.2) +
   
   # Basemap (countries)
-  geom_sf(data=countries, fill = "grey92", col = "white", lwd = 0.9)+
-  geom_sf(data=st_union(india), fill = "grey92", col = "white", lwd = 0.9)+
+  geom_sf(data=countries, fill = "grey92", col = "#FCF8F2", lwd = 0.9)+
   
   # Mekong basin
   geom_sf(data = basin, fill = "grey30", color = "transparent") + # lower basin
@@ -93,19 +121,24 @@ ggplot() +
             filter(Status == "Under construction" | Status == "Planned"),
           pch = 21, aes(fill = "#C66125"), color = "transparent", size = 2) +
   
-  # Define colours
+  # Define colors
   scale_fill_manual(values = c(alpha("#C66125",0.8),alpha("grey",0.5)))+
   
   # Labels
-  labs(title = "Mekong dams to nearly double by 2040",
-       caption = "Source: Ang, Wei Jing; Park, Edward; Pokhrel, Yadu; Tran, Dung Duc; Loc, Ho Huu, 2023, Replication Data for: 
-       Dams in the Mekong: A comprehensive database, spatiotemporal distribution, and hydropower potentials, 
-       https://doi.org/10.21979/N9/ACZIJN, DR-NTU (Data), V2, UNF:6:WPyeXwvCJSNeRzsfLOPd5Q== [fileUNF].")+
+  geom_text(aes(x = 109.5, y = 31.2, label = "01 Points"), size = 13/.pt, hjust=1) +
+  
+  geom_text(aes(x = 93, y = 10.5, label = "Wei Jing Ang\n30 Day Map Challenge"), hjust = 0, size = 5/.pt) +
+  
+  labs(title = "Dams in the Mekong",
+       caption = "Source: Ang, W.J., Park, E., Pokhrel, Y., Tran, D.D., 
+Loc, H.H., 2023, Replication Data for: Dams in the Mekong:
+A comprehensive database, spatiotemporal distribution, and 
+hydropower potentials, https://doi.org/10.21979/N9/ACZIJN.")+
   
   # Annotations
-  geom_richtext(aes(x = 101, y = 31,
+  geom_richtext(aes(x = 102.5, y = 29,
                     label = annotation1),
-                size = 10/.pt, 
+                size = 9/.pt, 
                 colour = "grey30",
                 hjust = 0,
                 fill = NA,
@@ -113,189 +146,641 @@ ggplot() +
   
   # Define map theme
   theme_void() +
-  theme(plot.title = element_text(face="bold",size=12,margin=margin(0,0,10,0)),
-        plot.caption = element_text(size=5, hjust = 0),
-        panel.background = element_rect(fill="white"),
-        panel.border = element_rect(color="white",fill=NA),
+  theme(plot.title = element_text(face="bold",size=15,margin=margin(0,20,-40,0),hjust=1),
+        plot.caption = element_text(size=5, hjust = 0,margin=margin(-30,0,0,14)),
+        # make sure to include color=NA to not have a thin grey border!
+        panel.background = element_rect(fill = "#FCF8F2", color = NA),
         legend.position = "none")
 
-ggsave("Output/Day1.png", plot = last_plot(), height = 7, width = 4,units = "in")
-
-# CRS <- c("+proj=eqearth")
-# xlim(st_bbox(basin)$xmin-10, st_bbox(basin)$xmax+10) +
-# ylim(st_bbox(basin)$ymin-10, st_bbox(basin)$ymax+10) +
+ggsave("Output/01-WeiJing-Points.png", plot = last_plot(), height = 7, width = 4.5,units = "in")
 ```
 
 # 2. Lines
-30DayMapChallenge classic: A map with focus on lines. Roads, rivers, routes, or borders—this day is all about mapping connections and divisions. Another traditional way to keep things moving. 
+I chose to map rivers for day 2's theme on lines. Focusing on the Amazon River Basin, I used the preattentive attribute of color. The river basin is in black to create a clear visual hierarchy in contrast with the light beige background, and to make the lines representing the rivers stand out. The rivers are colored and sized according to their stream order, where the largest streams of the highest orders are brighter and thicker.
 
-```{r day2}
-```
+```{r day2,fig.height=6,fig.width=6, fig.align='center',out.width='80%'}
+# Project data to SAD 1969 Lambert South America
+amazon_river <- amazon_river %>%
+  st_transform('ESRI:102015')
+amazon_basin <- amazon_basin %>%
+  st_transform('ESRI:102015')
 
-# 3. Polygons 
-30DayMapChallenge classic: A map with polygons. Regions, countries, lakes—this day is for defined shapes that fill space.
+ggplot()+
+  
+  # Basin
+  geom_sf(data=amazon_basin,fill="black",col=NA)+ 
+  
+  # Rivers by stream order
+  geom_sf(data=amazon_river, aes(col=ORD_STRA,linewidth=ORD_STRA)) + 
+  scale_color_viridis(option="A",begin=0.3)+
+  scale_linewidth(range = c(0.5, 1.5)) + 
+  
+  # Labels
+  labs(title = "The Amazon River Basin",
+       subtitle = "02 Lines",
+       caption = "Wei Jing Ang\n30 Day Map Challenge\n\nSource: HydroSHEDS")+
+  
+  # Theme
+  theme_void()+
+  theme(legend.position = "none",
+        plot.title = element_text(size=16,face="bold",margin=margin(20,0,-20,20)),
+        plot.subtitle = element_text(size=14,margin=margin(30,0,-30,20)),
+        plot.background = element_rect(fill="#FCF8F2", color = NA),
+        plot.caption = element_text(size=7,margin=margin(-25,15,15,0)))
 
-```{r day3}
+#ggsave("Output/02-WeiJing-Lines.png", plot = last_plot(), height = 6, width = 6,units = "in")
+
+## Code used for data wrangling ----
+# hydrorivers <- st_read("Data/HydroRIVERS_v10_sa_shp/HydroRIVERS_v10_sa_shp/HydroRIVERS_v10_sa.shp")
+# amazon_river <- hydrorivers %>%
+#   filter(MAIN_RIV == "60443230") %>%
+#   filter(ORD_STRA>4)
+# st_write(amazon_river, "Amazon_hydrorivers/Amazon_hydrorivers.shp")
+# 
+# hydrobasins <- st_read("Data/hybas_sa_lev01-06_v1c/hybas_sa_lev03_v1c.shp")
+# amazon_basin <- hydrobasins %>% filter(MAIN_BAS=="6030007000")
+# st_write(amazon_basin, "Amazon_hydrobasin.shp")
 ```
 
 # 4. Hexagons
-Maps using hexagonal grids. Step away from square grids and try mapping with hexagons. A fun way to show density or spatial patterns.
+For the theme on hexagons, I wanted to map the US states by water use. In line with the preattentive attribute of intensity, states with higher water usage are in dark blue, while states with lower usage are in lighter blue. The spherical mercator projection was used to create hexagons of equal sizes. 
 
-```{r day4}
-```
+```{r day4, fig.height = 5, fig.width = 7, out.width = '100%'}
+# Join to hexagons (total withdrawals in million gallons per day (Mgal/d))
+usa_wateruse_hex <- left_join(hexbin %>%
+                                dplyr::select("iso3166_2","geometry"),
+                              usa_wateruse_state,
+                              by = c("iso3166_2"="STATE")) %>%
+  st_transform('EPSG:3857') # Spherical Mercator for equal hexagon sizes
 
-# 5. A journey
-Map any journey. Personal or not. Trace a journey—this could be a daily commute, a long-distance trip, or something from history. The key is to map movement from one place to another. 
 
-```{r day5}
+# Categorize data (convert to billion gallons)
+usa_wateruse_hex$bin <- cut(usa_wateruse_hex$Use,
+  breaks = c(0,2000, 5000, 10000, 20000,Inf),
+  labels = c("0-2",">2-5", ">5-10", ">10-20",">20-28"),
+  include.lowest = TRUE
+)
+
+# Define palette
+palette_water <- c("#90e0ef","#00b4d8","#0188BC","#015BA0","#03045e")
+
+ggplot(data=usa_wateruse_hex)+
+  
+  # Hexagons and state labels
+  geom_sf(aes(fill=bin), color = "transparent", alpha = 0.9) +
+  geom_sf_text(aes(label = iso3166_2), color = "white", size = 3, alpha = 0.6) +
+  
+  # Labels
+  labs(title = "Water withdrawals by state in 2015",
+       subtitle = "04 Hexagons",
+       caption = "Wei Jing Ang\n30 Day Map Challenge\n\nSource: Dieter, C.A., Linsey, K.S., Caldwell, R.R., Harris, M.A.,
+Ivahnenko, T.I., Lovelace, J.K., Maupin, M.A., Barber, N.L., 2018,
+Estimated Use of Water in the United States County-Level Data for 2015,
+https://doi.org/10.5066/F7TB15V5. ANDREWXHILL, us_states_hexgrid.") +
+  
+  # Colours
+  scale_fill_manual(values = palette_water,
+                    name = "Billion gallons per day",
+                    guide = guide_legend(keyheight = unit(3, units = "mm"),
+                                         keywidth = unit(10, units = "mm"),
+                                         label.position = "bottom", title.position = "top", nrow = 1))+
+  
+  # Map theme
+  theme_void() +
+  theme(legend.position = "inside",
+        legend.position.inside = c(0.565, 0.865),
+        legend.text = element_text(size=9),
+        legend.title = element_text(size=9),
+        plot.background = element_rect(fill = "#FCF8F2", color = NA),
+        panel.background = element_rect(fill = "#FCF8F2", color = NA),
+        legend.background = element_rect(fill = "#FCF8F2", color = NA),
+        plot.caption = element_text(size=5,hjust=1, 
+                                    margin = margin(b = 0.5, t = -0.7, r = 0.5, unit = "cm")),
+        plot.title = element_text(size = 16,face="bold",
+                                  margin = margin(b = -0.7, t = 0.6, l = 3.5, unit = "cm")),
+        plot.subtitle = element_text(size = 13,
+                                  margin = margin(b = -1.6, t = 1.4, l = 3.5, unit = "cm")))
+
+#ggsave("Output/04-WeiJing-Hexagons.png", plot = last_plot(), height = 5, width = 7,units = "in")
+
+## Code used for data wrangling ----
+# usa_wateruse <- read_csv("Data/Water_Use/usco2015v2.0.csv",skip=1)
+# Sum water usage per state
+# usa_wateruse_state <- usa_wateruse %>%
+#   dplyr::select("STATE","TO-Wtotl") %>%
+#   rename(Water = "TO-Wtotl") %>%
+#   group_by(STATE) %>%
+#   summarise(Use = sum(Water, na.rm = T))
+# write.csv(usa_wateruse_state,"usa_wateruse_state.csv", row.names = FALSE)
 ```
 
 # 6. Raster
-A map using raster data. Rasters are everywhere, but today’s focus is purely on grids and pixels—satellite imagery, heatmaps, or any continuous surface data.
+This map of the Amazon River's floodplain lakes was derived from satellite imagery, flooding frequency, and field surveys. It is a continuous surface data, representing the topography (depth) of the floodplain lakes along the middle-lower Amazon. 
 
-```{r day6}
+To highlight the lakes, I employed the preattentive attribute of color. The lakes are in brighter red, while the river is in darker blue. As the data is continuous, the lakes are colored as a gradient and classified as quantiles for easier interpretation of the legend. 
+
+Following Gestalt's principle of similarity, parts of the annotation are colored according to the blue Amazon River and red lakes. To highlight that the Amazon floods frequently, "7 months" was bolded, employing the preattentive attribute of line width.
+
+```{r day6, message=FALSE,warning=FALSE,out.width='100%', fig.width=8, fig.height=3.5}
+# Define annotation 
+annotation6 <- glue("<span style='color:#355B7C;'>**The Amazon**</span> floods for up to **7 months**<br>each year, forming <span style='color:#DD6F78;'>**large complex lakes<br>of varying depths**</span> along its banks.")
+
+# Define palette
+amazon_palette = c("#F1A790","#DD6F78","#BF6476","#8E6781")
+
+ggplot()+
+  
+  # Map limits
+  xlim(-60, -54) +
+  ylim(-3.8, -1.5) +
+  
+  # Lake depths
+  geom_tile(data = bathy_df, aes(x = x, y = y, fill = bathymetry), color = NA) + 
+  
+  # River
+  geom_sf(data=hydropoly, fill = "#355B7C", color = NA) + 
+  geom_sf(data=hydropoly_add, fill = "#355B7C", color = NA) + 
+  
+  # Define colors
+  scale_fill_manual(values=amazon_palette,
+                    name = "Depth (m)",
+                    labels = c("2","","","10"),
+                    guide=guide_legend(direction="horizontal",title.vjust = 0.8))+
+  
+  # Labels
+  labs(title = "The Amazon River's floodplain lakes",
+       subtitle = "06 Raster",
+       caption="Wei Jing Ang\n30 Day Map Challenge\n\nSource: Ang, W.J., Edward, P., Enner, A., 2021, 
+Related data for: Mapping floodplain bathymetry in the 
+middle-lower Amazon River using inundation frequency 
+and field control, https://doi.org/10.21979/N9/CEPE6Y.")+
+
+  # Annotations
+  geom_richtext(aes(x = -60, y = -2.2,
+                    label = annotation6),
+                size = 11/.pt,
+                colour = "grey30",
+                hjust = 0,
+                fill = NA,
+                label.color = NA)+
+  
+  # Define map theme
+  theme_void()+
+  theme(plot.title = element_text(face="bold",size=14,margin=margin(20,0,-30,30)),
+        plot.subtitle = element_text(size=12,margin=margin(40,0,-40,30)),
+        plot.caption = element_text(size=5, hjust = 1,margin=margin(-40,10,10,0)),
+        plot.background = element_rect(fill = "#FCF8F2", color = NA),
+        panel.background = element_rect(fill="#FCF8F2",color=NA),
+        legend.text = element_text(size=9),
+        legend.title = element_text(size=9),
+        legend.position="inside",
+        legend.position.inside = c(0.5,0.07),
+        legend.title.position = "left",
+        legend.text.position = "bottom",
+        legend.key.height = unit(0.5, "cm"),
+        legend.key.width=unit(0.5, "cm"))
+
+#ggsave("Output/06-WeiJing-Raster.png", plot = last_plot(), height = 3.5, width = 8,units = "in")
 ```
 
 # 7. Vintage style
-Map something modern in a vintage aesthetic. Create a map that captures the look and feel of historical cartography but focuses on a contemporary topic. Use muted colors, fonts, and classic elements.
+The vintage map is a remake of day 1's map on the Mekong dam network. As the prompt asked for a map with a historical feel but on a contemporary topic, I thought that mapping modern day hydropower dams would be a good fit.  
 
-```{r day7}
-```
+To draw attention to the upcoming dams, I used the preattentive attributes of intensity and size. The current dams are the smaller crosses of lower opacity, while the upcoming dams are the bigger crosses of higher opacity. The Mekong River Basin is in dark brown to create a clear visual hierarchy in contrast with the light brown basemap. 
 
-# 8. Data: HDX
-Use data from HDX to map humanitarian topics. Explore the datasets from the Humanitarian Data Exchange, covering disaster response, health, population, and development. Map for social good. 
+The colour choices are more muted to match the theme. The vintage background was obtained from pinterest. Since unlike day 1, size instead of color was used to differentiate the dams, I added a legend. 
 
-```{r day8}
-```
+```{r day7, message = FALSE, warning = FALSE, fig.align = "center",fig.height=7,fig.width=4.5,out.width='60%'}
+# Define annotation 
+annotation7 <- glue("Dams planned and under<br>construction are expected to<br>expand the network to over a<br>thousand in the next decade.")
 
-# 9. AI only
-This day is all about prompt engineering. Use AI tools like DALL-E, MidJourney, Stable Diffusion, or ChatGPT with geospatial capabilities to create a map based on AI-generated content. The challenge is to get the right prompt and critically assess the output—how well does AI capture or distort the map's intent?
+# Load background image (from pinterest)
+vintage <- image_read("Data/Vintage_bg.jpg")
 
-```{r day9}
-```
+ggplot() +
+  
+  background_image(vintage) +
+  
+  # Map limits
+  xlim(93, 110) +
+  ylim(9.2, 33.2) +
+  
+  # Basemap (countries)
+  geom_sf(data=countries, fill = "transparent", col = alpha("#3a2317",0.4), lwd = 0.3)+
+  
+  # Mekong basin
+  geom_sf(data = basin, fill = "#9C846B", color = "transparent") + # lower basin
+  geom_sf(data = rbind(river1, river2, river3), color = "#C4C6AE", lwd=0.9) + # river
+  geom_sf(data = lake, fill = "#C4C6AE", color = "transparent") + # Tonle Sap Lake
 
-# 10. Pen & paper
-Draw a map by hand. Go analog and draw a map using pen and paper. The result doesn’t have to be perfect—it’s about the creative process.
+  # Operating dams
+  geom_sf(data = dams %>% 
+            filter(Status == "Operational"),
+          pch = 4, aes(size = 1), color = alpha("#3a2317",0.4)) +
 
-```{r day10}
-```
+  # Planned/ constructing dams
+  geom_sf(data = dams %>% 
+            filter(Status == "Under construction" | Status == "Planned"),
+          pch = 4, color = "#3a2317", aes(size = 2)) +
+  
+  # Define sizes
+  scale_size_continuous(range=c(1,2),
+                        name = "",
+                        breaks=c(1,2),
+                        labels = c("Operational","Planned and\nunder construction"))+
+  
+  # Labels
+  geom_text(aes(x = 109.5, y = 31.2, label = "07 Vintage"), size = 13/.pt, hjust=1) +
+  
+  geom_text(aes(x = 93, y = 11, label = "Wei Jing Ang\n30 Day Map Challenge"), hjust = 0, size = 5/.pt) +
+  
+  labs(title = "Dams in the Mekong",
+       caption = "Source: Ang, W.J., Park, E., Pokhrel, Y., Tran, D.D., 
+Loc, H.H., 2023, Replication Data for: Dams in the Mekong:
+A comprehensive database, spatiotemporal distribution, and 
+hydropower potentials, https://doi.org/10.21979/N9/ACZIJN.
+Vintage background was obtained from pinterest.")+
+  
+  # Annotations
+  geom_richtext(aes(x = 102.5, y = 29,
+                    label = annotation7),
+                size = 9/.pt, 
+                colour = "grey30",
+                hjust = 0,
+                fill = NA,
+                label.color = NA)+
+  
+  # Define map theme
+  theme_void() +
+  theme(plot.title = element_text(face="bold",size=15,margin=margin(0,20,-38,0),hjust=1),
+        plot.caption = element_text(size=5, hjust = 0,margin=margin(-40,0,0,14)),
+        legend.position = "inside",
+        legend.position.inside = c(0.78, 0.7),
+        legend.text = element_text(size=8),
+        legend.background = element_rect(fill = NA, color = NA))
 
-# 11. Arctic
-Map the Arctic. Whether it’s ice coverage, wildlife habitats, or the effects of climate change, this day is all about mapping the cold extremes of the Arctic.
-
-```{r day11}
+#ggsave("Output/07-WeiJing-Vintage.png", plot = last_plot(), height = 7, width = 4.5,units = "in")
 ```
 
 # 12. Time and space
-Map something where time matters. Visualize change over time—urban growth, migration, or environmental shifts. Show the relationship between time and geography.
+For a map that visualizes change over space and time, I thought that adapting one of my previous maps on hydropower growth patterns over time in the Mekong River Basin would be a good match.
 
-```{r day12}
-```
+I employed the preattentive attribute of intensity, where countries with lower hydropower capacity are in light purple, while the countries with higher capacity are in dark purple. Using Gestalt's principle of similarity, part of the title is colored according to Laos in orange, to highlight the growing hydropower in the country.
 
-# 13. A new tool
-Use a tool you’ve never tried before. The challenge has always been about trying new things. Use a tool, software, or drawing technique you’ve never worked with before. 
+```{r day12, out.width='100%', fig.width=7,fig.height=4}
+# Define function to sum hydropower per country per decade
+bycountry <- function(hpyear,year){
+  hpyear %>% 
+  st_drop_geometry() %>%
+  dplyr::select(Capacity_M, Country) %>%
+  group_by(Country) %>%
+  summarise(Capacity = sum(Capacity_M, na.rm = T)) %>%
+  mutate(decade = year)
+}
 
-```{r day13}
-```
+# Run function to sum hydropower
+# Note: Myanmar only appears in 2010, so add in a row for Myanmar until 2000
+country1980 <- bycountry(dams1980,1980) %>%
+  rbind(.,data.frame(Country = "Myanmar",Capacity = 0, decade = 1980)) 
+country1990 <- bycountry(dams1990,1990) %>%
+  rbind(.,data.frame(Country = "Myanmar",Capacity = 0, decade = 1990))
+country2000 <- bycountry(dams2000,2000) %>%
+  rbind(.,data.frame(Country = "Myanmar",Capacity = 0, decade = 2000))
+country2010 <- bycountry(dams2010,2010)
+country2020 <- bycountry(dams2020,2020)
+countryall <- rbind(country1980,country1990,country2000,country2010,country2020)
 
-# 14. A world map
-Map the whole world. Whether it’s continents, ecosystems, or oceans, this is the day to map the entire planet. 
+# Add geometry to countryall
+countries_mekong <- countries_mekong %>% rename(Country = COUNTRY) # rename for joining
+countryall_withgeom <- left_join(countryall,
+                                 countries_mekong %>% 
+                                   dplyr::select(geometry,Country),
+                               by = "Country") %>% # left join geometries to country data
+  st_as_sf(crs = st_crs(basin)) # turn into sf for mapping
 
-```{r day14}
-```
+# Decadal labels for the map
+annotations <- data.frame(
+  decade = c(1980, 1990, 2000, 2010, 2020),
+  label = c("1980s", "1990s", "2000s", "2010s", "Post-2020s")
+)
 
-# 15. Data: My data
-Map something personal. Map data from your own life—this could be places you’ve traveled, your daily routine, or any other personal touch.
+# Define title and subtitle 
+title12 <- glue("Growing hydropower in <span style='color:#C66125;'>Laos</span> in the Mekong Basin")
 
-```{r day15}
+# Maps of hydropower capacity over the decades
+ggplot()+
+  
+  # Mekong delta
+  geom_sf(data = basin, fill = "#D6D6FF", color = "transparent") + 
+  
+  # Capacity
+  geom_sf(data = countryall_withgeom, aes(fill = as.factor(ntile(Capacity, 5))), # quintiles
+          color = "transparent") +
+  facet_wrap(~decade, nrow = 1) + # 1 map for each decade
+  scale_fill_manual(values = c("#D6D6FF","#B2B4F0","#6B7ED4","#4561BF","#003995"),
+                    name = "Gigawatts",
+                    labels = c("0","","","","33"),
+                    guide=guide_legend(direction="horizontal",title.vjust = 0.8))+
+  
+  # Laos
+  geom_sf(data = countries_mekong %>%
+            filter(NAME == "Laos"), fill = "transparent", color = "#C66125", linewidth = 1) +
+  
+  # Labels
+  geom_text(data = annotations, aes(x = 100, y = 8, label = label), size = 9/.pt) + # decadal labels
+  labs(title = title12,
+       subtitle = "12 Time and space",
+  caption = "Wei Jing Ang\n30 Day Map Challenge\n\nSource: Ang, W.J., Park, E., Pokhrel, Y., Tran, D.D., Loc, H.H., 2023, Replication 
+Data for: Dams in the Mekong: A comprehensive database, spatiotemporal 
+distribution, and hydropower potentials, https://doi.org/10.21979/N9/ACZIJN.") +
+  
+  # Define map theme
+  theme_void() + 
+  theme(
+    strip.text.x = element_blank(), # remove facet wrap labels
+    legend.position = "inside",
+    legend.position.inside = c(0.18,-0.18),
+    legend.title.position = "left",
+    legend.text.position = "bottom",
+    legend.key.height = unit(0.4, "cm"), # reduce legend key size
+    legend.key.width = unit(0.4, "cm"),
+    legend.title = element_text(size = 8),
+    legend.text = element_text(size = 8),
+    plot.margin = margin(t = 5, r = 5, b = 5, l = 5),
+    plot.background = element_rect(fill = "#FCF8F2", color = NA),
+    plot.caption = element_text(hjust = 1, size=5, margin = margin(9,6,6,0)),
+    plot.subtitle = element_text(size=12,margin=margin(10,0,10,7)),
+    plot.title = element_markdown(size=12,face="bold", margin=margin(10,0,0,7))
+  )
+
+#ggsave("Output/12-WeiJing-SpaceTime.png", plot = last_plot(), height = 4, width = 7,units = "in")
 ```
 
 # 16. Choropleth
-Classic choropleth map. Use color to show data variation across regions. This simple but effective technique is a staple for showing thematic differences. 
+Adapting the bivariate map we made in class, I mapped the water usage in Pennsylvania with the same dataset used on day 4, comparing it against average household sizes. Notable areas are identified and labelled. 
 
-```{r day16}
-```
+To focus on Pennsylvania, I employed the preattentive attribute of color. The vibrant colors create a clear visual hierarchy in contrast with the light grey basemap and beige background (representing water in this case). Following Gestalt's principle of similarity, parts of the title are colored according to the two variables.
 
-# 17. Collaborative map
-Collaborate with others on a single map. For today’s challenge, team up! Whether you work with one person or several, the idea is to combine your efforts on a single map. 
+```{r day16, out.width='100%',fig.width=7,fig.height=5.5}
+# Rename columns and project data
+usa_wateruse_penn <- usa_wateruse_penn %>%
+  rename(Water = "PS.Wtotl") %>%
+  rename(Household = "AVE_HH_SZ") %>%
+  st_transform('EPSG:2272')
 
-```{r day17}
+# Classify data into bivariate categories using 'biscale'
+bivariate <- bi_class(usa_wateruse_penn, x = Water, y = Household, style = "quantile", dim = 3)
+
+# Basemap
+usa_states_pennproj <- usa_states %>%
+  st_transform('EPSG:2272')
+
+# Define title and annotations using colored text
+title16 <- glue("<span style='color:#6EB4B5;'>**Water usage**</span> and <span style='color:#A25F99;'>**household size**</span> in Pennsylvania")
+annotation16_1 <- glue("High water usage<br>small households")
+annotation16_2 <- glue("High water usage<br>large households")
+annotation16_3 <- glue("Low water usage, smaller households")
+
+# Define palette
+palette <- "DkBlue2"
+
+# Create map with colored subtitle, annotations, and leader lines
+map <- ggplot() +
+  theme_void(base_size = 14) +
+  
+  # Plot basemap
+  geom_sf(data=usa_states_pennproj, fill = "grey92", col = "white", lwd = 0.9)+
+  
+  # Plot bivariate map
+  geom_sf(data = bivariate, aes(fill = bi_class), color = NA, linewidth = 0.1, show.legend = FALSE) +
+  bi_scale_fill(pal = palette, dim = 4, flip_axes = FALSE, rotate_pal = FALSE)+
+  
+  # Plot outline
+  geom_sf(data=st_union(bivariate),fill=NA,col="white",lwd=0.8)+
+  
+  # Set map limits
+  coord_sf(xlim = c(1189585-120000, 2814853+100000), 
+           ylim = c(140908.2-320000, 1075997+200000), expand = FALSE)+
+  
+  # Labels
+  labs(title = title16,
+       subtitle = "16 Choropleth",
+       caption = "Wei Jing Ang\n30 Day Map Challenge\n\nSource: Dieter, C.A., Linsey, K.S., Caldwell, R.R., Harris, M.A., 
+Ivahnenko, T.I., Lovelace, J.K., Maupin, M.A., Barber, N.L., 2018, 
+Estimated Use of Water in the United States County-Level Data for 2015,
+https://doi.org/10.5066/F7TB15V5. Esri Data and Maps, USA Counties.
+
+Water usage refers to the total withdrawals from public supply per day in 2015") +
+  
+  # Define map theme
+  theme(plot.title = element_markdown(size=16, face="bold",margin=margin(10,0,-5,50)),
+        plot.subtitle = element_text(size=14, margin = margin(20,80,-75,0),hjust=1),
+        plot.caption = element_text(size=6,hjust=0, margin = margin(-70,0,5,40)),
+        panel.grid = element_blank(),
+        panel.background = element_rect(fill="#FCF8F2",color=NA))+
+  
+  # Annotations
+  geom_richtext(aes(x = 1220585, y = 310000,
+                    label = annotation16_1),
+                size = 11/.pt,
+                colour = "white",
+                hjust = 0,
+                fill = NA,
+                label.color = NA)+
+  geom_richtext(aes(x = 2319085, y = 280000,
+                    label = annotation16_2),
+                size = 11/.pt,
+                colour = "white",
+                hjust = 0,
+                fill = NA,
+                label.color = NA)+
+  geom_richtext(aes(x = 1870585, y = 900000,
+                    label = annotation16_3),
+                size = 11/.pt,
+                colour = "white",
+                hjust = 0,
+                fill = NA,
+                label.color = NA)
+
+# Legend
+legend <- bi_legend(pal = palette,   
+                    flip_axes = FALSE,
+                    rotate_pal = FALSE,
+                    dim = 4,
+                    xlab = "Water usage",
+                    ylab = "Household size",
+                    size = 7)+
+  # Remove white legend background
+  theme(plot.background = element_rect(fill = NA, color = NA))
+
+# Combine map and legend using cowplot
+finalPlot <- ggdraw() +
+  draw_plot(map, 0, 0, 1, 1) +
+  draw_plot(legend, 0.7, 0.02, 0.21, 0.21)
+
+# Display final map
+finalPlot
+
+ggsave("Output/16-WeiJing-Choropleth.png", plot = last_plot(), height = 5.5, width = 7,units = "in")
+
+## Code used for data wrangling ----
+# usa_wateruse <- read_csv("Data/Water_Use/usco2015v2.0.csv",skip=1)
+# counties <- st_read("Data/USA_Counties_1016676858958179337.geojson")
+# usa_wateruse_penn <- left_join(counties %>%
+#                                  filter(STATE_FIPS == "42") %>%
+#                                  dplyr::select("FIPS","STATE_FIPS","AVE_HH_SZ","geometry"),
+#                                usa_wateruse %>%
+#                                  dplyr::select("FIPS","COUNTY","STATE","PS-Wtotl"),
+#                                by = "FIPS") 
+# st_write(usa_wateruse_penn, "usa_wateruse_penn.shp")
 ```
 
 # 18. 3D
-Map with depth. Add a third dimension to your map. Whether it’s visualizing elevation, buildings, or something more abstract, today’s about thinking beyond flat surfaces. 
+For the theme on 3D, mapping the lake depths from day 6 felt like a good fit. I zoomed into one prominent lake and exaggerated the depths for them to show up in the 3D plot, created using the rayshader package. 
 
-```{r day18}
-```
+```{r day18, fig.height=3.5,fig.width=7,out.width='100%'}
+# Crop bathymetry to a single lake (Curuai)
+bathy_cropped <- crop(bathy, curuai)
+bathy_masked <- mask(bathy_cropped, curuai)
 
-# 19. Typography
-Map focused on typography. Let text and words do the heavy lifting today. Whether you’re focusing on place names, labeling, or using text to create shapes and patterns. 
+# Convert to matrix to use rayshader package
+matrix = raster_to_matrix(bathy_masked)
+matrix = 0-matrix*800 # exaggerate depth and convert to negative elevation
 
-```{r day19}
-```
+# Add shadow and water to 3D plot
+matrix %>%
+  sphere_shade(sunangle = 40, zscale = 200, texture = "imhof2") %>%
+  add_shadow(ray_shade(matrix, zscale = 200), 0.5) %>% #,
+  plot_3d(matrix, zscale = 500, fov = 0, theta = 10, zoom = 0.4, phi = 45, windowsize = c(1000, 400),water = TRUE, waterdepth = 0, wateralpha = 0.5, watercolor = "lightblue",
+             waterlinecolor = "white", waterlinealpha = 0.5,background="#FCF8F2") 
+Sys.sleep(0.2)
+render_snapshot("Data/Curuai_3D.png",clear=TRUE) # save snapshot
 
-# 20. Data: OpenStreetMap
-Use OpenStreetMap data to create something. OpenStreetMap offers rich, editable data from roads to buildings and beyond. The goal is to showcase the power of this community-driven dataset.
+# Load snapshot and convert to raster
+img <- image_read("Data/Curuai_3D.png")
+img_gg <- as.raster(img)
 
-```{r day20}
-```
+# Label using ggplot
+ggplot() +
+  
+  # Snapshot (now a raster)
+  annotation_raster(img_gg, xmin = -Inf, xmax = Inf, ymin = -Inf, ymax = Inf) +
 
-# 21. Conflict
-Map a conflict. Political, territorial, or social—there are conflicts all around us. Map boundaries, tension points, or the outcomes of conflicts.
+  # Labels
+  labs(title = "Curuai Lake in the Amazon",
+       subtitle = "18 3D",
+       caption="Wei Jing Ang\n30 Day Map Challenge\n\nSource: Ang, W.J., Edward, P.; Enner, A., 2021, Related data for: 
+Mapping floodplain bathymetry in the middle-lower Amazon River using 
+inundation frequency and field control, https://doi.org/10.21979/N9/CEPE6Y.")+
 
-```{r day21}
-```
+  # Define map theme
+  theme_void()+
+  theme(aspect.ratio = 2/5,
+        plot.title = element_text(face="bold",size=14,margin=margin(20,20,-25,0),hjust=1),
+        plot.subtitle = element_text(size=12,margin=margin(40,20,-40,0),hjust=1),
+        plot.caption = element_text(size=6,hjust=0,margin=margin(-25,0,10,20)),
+        plot.background = element_rect(fill="#FCF8F2",color=NA))
 
-# 22. 2 colours
-Create a map using only 2 colors. No gradients or shading—just two flat colors. This restriction encourages creativity in design and forces you to think about how to clearly convey your message with minimal color.
-
-```{r day22}
-```
-
-# 23. Memory
-Map based on memory. Create a map of a place you remember—hometown, favorite destination, or somewhere meaningful. It doesn’t need to be perfectly accurate, just how you recall it.
-
-```{r day23}
+#ggsave("Output/18-WeiJing-3D.png", plot = last_plot(), height = 3.5, width = 7,units = "in")
 ```
 
 # 24. Only circular shapes
-Map using only circles. Everything should be circular. Forget straight lines and sharp edges, and see how creative you can get by sticking to round shapes.
+Mapping Curuai Lake again, I converted the raster grid to an sf object to map them as circles representing the lake depth. The raster was resampled to a coarser resolution for the circles to be drawn bigger and clearer. Using the preattentive attribute of intensity, deeper parts of the lake are in dark purple while shallower parts are in light red.
 
-```{r day24}
-```
+```{r day24, fig.height=3.8,fig.width=7,out.width='100%'}
+# Resample Curuai lake to coarser grid
+new_res <- 0.01
+new_ras <- rast(ext(bathy_masked), resolution = new_res, crs = crs(bathy_masked))
+curuai_rs <- resample(bathy_masked, new_ras, method = "bilinear")
 
-# 25. Heat
-Map something related to heat. Focus on heat, whether it’s actual temperature or areas of intensity—like heatmaps of activity or metaphorical heat.
+# Classify raster into quantiles
+curuai_values <- values(curuai_rs)[!is.na(values(curuai_rs))] # remove na for classification
+curuai_breaks <- classInt::classIntervals(curuai_values, 
+                                   style = "quantile", n = 4)
+curuai_class <- terra::classify(curuai_rs, curuai_breaks$brks) # split by quantiles
 
-```{r day25}
+# Convert to data frame for mapping as raster
+curuai_df <- as.data.frame(curuai_class,xy=TRUE)
+
+# Turn data frame to sf object to map as circles
+curuai_sf = st_as_sf(curuai_df, coords = c("x", "y"), 
+                 crs = 4326, agr = "constant")
+
+ggplot()+
+  
+  # Curuai lake depth
+  geom_sf(data = curuai_sf, aes(color=bathymetry), size=1.2) + 
+  
+  # Define colors
+  scale_color_manual(values=amazon_palette,
+                    name = "Depth (m)",
+                    labels = c("2","","","7"),
+                    guide=guide_legend(direction="horizontal",title.vjust = 0.8))+
+  
+  # Labels
+  labs(title = "Curuai Lake in the Amazon",
+       subtitle = "24 Only circular shapes",
+       caption="Wei Jing Ang\n30 Day Map Challenge\n\nSource: Ang, W.J., Edward, P.; Enner, A., 2021, Related data for: 
+Mapping floodplain bathymetry in the middle-lower Amazon River using 
+inundation frequency and field control, https://doi.org/10.21979/N9/CEPE6Y.")+
+
+  # Define map theme
+  theme_void()+
+  theme(plot.title = element_text(face="bold",size=14,margin=margin(20,20,-20,0),hjust=1),
+        plot.subtitle = element_text(size=12,margin=margin(30,20,-30,0),hjust=1),
+        plot.caption = element_text(size=6,hjust=0,margin=margin(-25,0,10,20)),
+        plot.background = element_rect(fill="#FCF8F2",color=NA),
+        panel.background = element_rect(fill="#FCF8F2",color=NA),
+        legend.text = element_text(size=11),
+        legend.title = element_text(size=11),
+        legend.position="inside",
+        legend.position.inside = c(0.84,0.7),
+        legend.title.position = "left",
+        legend.text.position = "bottom",
+        legend.key.height = unit(0.5, "cm"),
+        legend.key.width=unit(0.5, "cm"))
+
+#ggsave("Output/24-WeiJing-Circles.png", plot = last_plot(), height = 3.8, width = 7,units = "in")
 ```
 
 # 26. Map projections
-Explore different map projections and how they distort the world. Whether it's focusing on the classic Mercator, the Peters projection, or a more obscure one like the Waterman Butterfly, today is about playing with how we represent the round Earth on flat surfaces.
+Since my overall theme is on water, I wanted to try mapping the Spilhaus Projection in R, a projection that combines all oceans into one. However, this projection is not directly available in R, so I obtained its coordinates (in mercator projection) from a code shared on Github. 
 
-```{r day26}
-```
+```{r day26, warning = FALSE,fig.height=6,fig.width=6,dpi=300,out.width='80%',fig.align='center'}
+# The coordinates for the spilhaus projection was extracted from github
+# https://github.com/rtlemos/spilhaus/tree/main
+spilhaus_coord = read.csv("Data/spilhaus_coord.csv")
 
-# 27. Micromapping
-Map something small and precise. Zoom in and map a small area in high detail. It could be a single building, a street corner, or a tiny plot of land. Focus on accuracy at a small scale. 
+# Annotation data frame
+annotation26 <- data.frame(
+   x = c(4200000,1000000,-7500000),
+   y = c(-6000000,1500000,4000000),
+   label = c("Pacific\nOcean", "Indian\nOcean","Atlantic\nOcean")
+)
 
-```{r day27}
-```
+# Map
+ggplot(data=spilhaus_coord, aes(x=x, y=y)) +
+  geom_raster(fill="#008080") +
+  coord_equal() +
+  
+  # Labels
+  geom_text(data=annotation26, aes(x=x, y=y, label=label),
+           color="white", 
+           size=4,
+           fontface="bold")+
+  labs(title = "Spilhaus Projection",
+       subtitle = "26 Map projections",
+       caption = "Wei Jing Ang\n30 Day Map Challenge\n\nSource: rtlemos, spilhaus") +
+  
+  # Theme
+  theme_void()+
+  theme(plot.background = element_rect(fill = "#FCF8F2", color = NA),
+        plot.title = element_text(size=16,face="bold",
+                                  margin = margin(b = -2.6, t = 1.5, l = 7.2, unit = "cm")),
+        plot.subtitle = element_text(size=14,
+                                  margin = margin(b = -2.6, t = 3, l = 7.2, unit = "cm")),
+        plot.caption = element_text(size=8,hjust=0,
+                                    margin = margin(b = 1.2, t = -2, l = 0.8, unit = "cm")))
 
-# 28. The blue planet
-Map oceans, rivers, and lakes. Focus on water today. Map the oceans, rivers, or lakes, diving deep into marine environments or water systems.
-
-```{r day28}
-```
-
-# 29. Data: Overture
-Use data from the Overture Maps Foundation. Explore data from Overture Maps Foundation to create a map that highlights new geographic datasets. A great opportunity to dive into open geospatial data! 
-
-```{r day29}
-```
-
-# 30. The final map
-The final challenge—your choice! Revisit a technique from earlier in the month, refine an idea, or try something completely new. End the challenge on a high note with a map that showcases your creativity, growth, or just pure fun!
-
-```{r day30}
+#ggsave("Output/26-WeiJing-Projections.png", plot = last_plot(), height = 6, width = 6,units = "in")
 ```
